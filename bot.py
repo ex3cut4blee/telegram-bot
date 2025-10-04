@@ -23,13 +23,13 @@ logger = logging.getLogger(__name__)
 
 # Константы
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-ADMIN_CHAT_ID = os.getenv('ADMIN_CHAT_ID')  # Ваш chat_id
+ADMIN_CHAT_ID = os.getenv('ADMIN_CHAT_ID')
 
 # Состояния для ConversationHandler
 WAITING_FOR_REPLY = 1
 
 # Глобальные переменные для хранения данных
-user_messages = {}  # {user_id: {message_text, message_id}}
+user_messages = {}
 
 # Клавиатура для пользователя
 user_keyboard = ReplyKeyboardMarkup([
@@ -43,7 +43,6 @@ admin_keyboard = ReplyKeyboardMarkup([
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
-    user = update.message.from_user
     await update.message.reply_text(
         "Привет! Я бот-пересыльщик сообщений. "
         "Отправь мне любое сообщение, и я перешлю его администратору.\n\n"
@@ -84,7 +83,7 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=admin_keyboard
             )
         else:
-            # Медиа-сообщение (фото, видео и т.д.)
+            # Медиа-сообщение
             forwarded_msg = await message.forward(ADMIN_CHAT_ID)
             await context.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
@@ -92,7 +91,6 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=admin_keyboard
             )
         
-        # Сохраняем ID пересланного сообщения для ответа
         user_messages[user.id]['forwarded_id'] = forwarded_msg.message_id
         
     except Exception as e:
@@ -105,45 +103,31 @@ async def delete_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if user.id in user_messages:
         try:
-            # Удаляем у админа (если возможно)
+            # Удаляем у админа
             if 'forwarded_id' in user_messages[user.id]:
                 await context.bot.delete_message(
                     chat_id=ADMIN_CHAT_ID,
                     message_id=user_messages[user.id]['forwarded_id']
                 )
             
-            # Удаляем оригинал у пользователя
+            # Удаляем оригинал
             await context.bot.delete_message(
                 chat_id=user.id,
                 message_id=user_messages[user.id]['message_id']
             )
             
-            # Удаляем из памяти
             del user_messages[user.id]
-            
-            await update.message.reply_text(
-                "✅ Сообщение удалено!",
-                reply_markup=user_keyboard
-            )
+            await update.message.reply_text("✅ Сообщение удалено!", reply_markup=user_keyboard)
             
         except Exception as e:
             logger.error(f"Ошибка удаления: {e}")
-            await update.message.reply_text(
-                "❌ Не удалось удалить сообщение",
-                reply_markup=user_keyboard
-            )
+            await update.message.reply_text("❌ Не удалось удалить сообщение", reply_markup=user_keyboard)
     else:
-        await update.message.reply_text(
-            "❌ Не найдено сообщений для удаления",
-            reply_markup=user_keyboard
-        )
+        await update.message.reply_text("❌ Не найдено сообщений для удаления", reply_markup=user_keyboard)
 
 async def new_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка кнопки 'Написать ещё'"""
-    await update.message.reply_text(
-        "✍️ Отправьте ваше новое сообщение:",
-        reply_markup=user_keyboard
-    )
+    await update.message.reply_text("✍️ Отправьте ваше новое сообщение:", reply_markup=user_keyboard)
 
 async def start_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало ответа админа пользователю"""
@@ -169,17 +153,13 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user_id, reply_text = text.split(' ', 1)
         user_id = int(user_id)
         
-        # Отправляем ответ пользователю
         await context.bot.send_message(
             chat_id=user_id,
             text=f"📩 Ответ от администратора:\n\n{reply_text}",
             reply_markup=user_keyboard
         )
         
-        await update.message.reply_text(
-            "✅ Ответ отправлен пользователю!",
-            reply_markup=admin_keyboard
-        )
+        await update.message.reply_text("✅ Ответ отправлен пользователю!", reply_markup=admin_keyboard)
         
     except ValueError:
         await update.message.reply_text(
@@ -189,10 +169,7 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
     except Exception as e:
         logger.error(f"Ошибка отправки ответа: {e}")
-        await update.message.reply_text(
-            "❌ Ошибка отправки ответа",
-            reply_markup=admin_keyboard
-        )
+        await update.message.reply_text("❌ Ошибка отправки ответа", reply_markup=admin_keyboard)
     
     return ConversationHandler.END
 
@@ -203,9 +180,11 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """Основная функция"""
-    # Создаем приложение
+    if not TOKEN:
+        logger.error("❌ TELEGRAM_BOT_TOKEN не найден!")
+        return
+    
     application = Application.builder().token(TOKEN).build()
-
     
     # Обработчики команд
     application.add_handler(CommandHandler("start", start))
@@ -213,7 +192,6 @@ def main():
     # Обработчики кнопок
     application.add_handler(MessageHandler(filters.Regex("Написать ещё 😊"), new_message))
     application.add_handler(MessageHandler(filters.Regex("Удалить сообщение 😊"), delete_message))
-    application.add_handler(MessageHandler(filters.Regex("Ответить пользователю"), start_admin_reply))
     
     # Обработчик ответов админа
     reply_conversation = ConversationHandler(
@@ -229,20 +207,8 @@ def main():
     application.add_handler(MessageHandler(filters.ALL, handle_user_message))
     
     # Запуск бота
-    print("🔄 Запуск бота...")
-    
-    # Для Render используем webhook вместо polling
-    if 'RENDER' in os.environ:
-        PORT = int(os.environ.get('PORT', 8443))
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=TOKEN,
-            webhook_url=f"https://{os.environ.get('RENDER_SERVICE_NAME')}.onrender.com/{TOKEN}"
-        )
-    else:
-        # Локальная разработка
-        application.run_polling()
+    print("🔄 Бот запущен...")
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
