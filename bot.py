@@ -205,6 +205,7 @@ def main():
     """Основная функция"""
     # Создаем приложение
     application = Application.builder().token(TOKEN).build()
+
     
     # Обработчики команд
     application.add_handler(CommandHandler("start", start))
@@ -228,8 +229,20 @@ def main():
     application.add_handler(MessageHandler(filters.ALL, handle_user_message))
     
     # Запуск бота
-    print("Бот запущен...")
-    application.run_polling()
+    print("🔄 Запуск бота...")
+    
+    # Для Render используем webhook вместо polling
+    if 'RENDER' in os.environ:
+        PORT = int(os.environ.get('PORT', 8443))
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=TOKEN,
+            webhook_url=f"https://{os.environ.get('RENDER_SERVICE_NAME')}.onrender.com/{TOKEN}"
+        )
+    else:
+        # Локальная разработка
+        application.run_polling()
 
 if __name__ == "__main__":
     main()
