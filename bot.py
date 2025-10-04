@@ -1,99 +1,87 @@
 import os
-import logging
-from aiogram import Bot, Dispatcher, types, Router
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.filters import Command, Text
-from aiogram.enums import ParseMode
-from aiogram.client.default import DefaultBotProperties
+import telebot
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 from dotenv import load_dotenv
 
 # Загружаем переменные окружения
 load_dotenv()
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 # Константы
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 ADMIN_CHAT_ID = os.getenv('ADMIN_CHAT_ID')
 
-# Инициализация бота и диспетчера
-bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
+# Инициализация бота
+bot = telebot.TeleBot(TOKEN)
 
 # Словарь для хранения сообщений
 user_messages = {}
 
 # Клавиатура
-user_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="Написать ещё 😊"), KeyboardButton(text="Удалить сообщение 😊")]
-    ],
-    resize_keyboard=True
-)
+def get_user_keyboard():
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add(KeyboardButton("Написать ещё 😊"))
+    keyboard.add(KeyboardButton("Удалить сообщение 😊"))
+    return keyboard
 
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    await message.answer(
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.send_message(
+        message.chat.id,
         "Привет! Отправь мне сообщение, и я перешлю его администратору.",
-        reply_markup=user_keyboard
+        reply_markup=get_user_keyboard()
     )
 
-@dp.message(Text("Написать ещё 😊"))
-async def new_message(message: types.Message):
-    await message.answer("✍️ Отправьте ваше новое сообщение:", reply_markup=user_keyboard)
+@bot.message_handler(func=lambda message: message.text == "Написать ещё 😊")
+def new_message(message):
+    bot.send_message(message.chat.id, "✍️ Отправьте ваше новое сообщение:", reply_markup=get_user_keyboard())
 
-@dp.message(Text("Удалить сообщение 😊"))
-async def delete_message(message: types.Message):
+@bot.message_handler(func=lambda message: message.text == "Удалить сообщение 😊")
+def delete_message(message):
     user_id = message.from_user.id
     if user_id in user_messages:
         try:
-            await bot.delete_message(chat_id=user_id, message_id=user_messages[user_id]['message_id'])
+            bot.delete_message(user_id, user_messages[user_id]['message_id'])
             del user_messages[user_id]
-            await message.answer("✅ Сообщение удалено!", reply_markup=user_keyboard)
+            bot.send_message(message.chat.id, "✅ Сообщение удалено!", reply_markup=get_user_keyboard())
         except Exception as e:
-            await message.answer("❌ Не удалось удалить сообщение", reply_markup=user_keyboard)
+            bot.send_message(message.chat.id, "❌ Не удалось удалить сообщение", reply_markup=get_user_keyboard())
     else:
-        await message.answer("❌ Не найдено сообщений для удаления", reply_markup=user_keyboard)
+        bot.send_message(message.chat.id, "❌ Не найдено сообщений для удаления", reply_markup=get_user_keyboard())
 
-@dp.message()
-async def handle_all_messages(message: types.Message):
+@bot.message_handler(func=lambda message: True)
+def handle_all_messages(message):
     user = message.from_user
     
     # Сохраняем сообщение
     user_messages[user.id] = {
-        'text': message.text or "Медиа-сообщение",
+        'text': message.text or "Медиа-сообщение", 
         'message_id': message.message_id
     }
     
     # Подтверждение пользователю
-    await message.answer(
+    bot.send_message(
+        message.chat.id,
         "✅ Сообщение отправлено, ожидайте ответ!",
-        reply_markup=user_keyboard
+        reply_markup=get_user_keyboard()
     )
     
     # Пересылаем админу
     try:
         if message.text:
-            await bot.send_message(
-                chat_id=ADMIN_CHAT_ID,
-                text=f"📨 Сообщение от {user.first_name} (@{user.username}):\n\n{message.text}"
+            bot.send_message(
+                ADMIN_CHAT_ID,
+                f"📨 Сообщение от {user.first_name} (@{user.username}):\n\n{message.text}"
             )
         else:
-            await message.forward(ADMIN_CHAT_ID)
-            await bot.send_message(
-                chat_id=ADMIN_CHAT_ID,
-                text=f"📨 Медиа-сообщение от {user.first_name} (@{user.username})"
+            bot.forward_message(ADMIN_CHAT_ID, message.chat.id, message.message_id)
+            bot.send_message(
+                ADMIN_CHAT_ID,
+                f"📨 Медиа-сообщение от {user.first_name} (@{user.username})"
             )
     except Exception as e:
-        logger.error(f"Ошибка пересылки: {e}")
-        await message.answer("❌ Ошибка отправки сообщения", reply_markup=user_keyboard)
-
-async def main():
-    logger.info("🔄 Бот запускается...")
-    await dp.start_polling(bot)
+        print(f"Ошибка пересылки: {e}")
+        bot.send_message(message.chat.id, "❌ Ошибка отправки сообщения", reply_markup=get_user_keyboard())
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    print("🔄 Бот запускается...")
+    bot.infinity_polling()
